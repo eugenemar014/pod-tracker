@@ -9,7 +9,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "pods-tracker-change-this-secret";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "pods-tracker.db");
+
+if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD)) {
+  throw new Error("Production requires JWT_SECRET, ADMIN_USERNAME, and ADMIN_PASSWORD");
+}
 
 app.use(cors());
 app.use(express.json());
@@ -72,8 +78,11 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
-if (!db.prepare("SELECT id FROM users LIMIT 1").get()) {
-  db.prepare("INSERT INTO users (username,password) VALUES (?,?)").run("admin", "admin123");
+const defaultAdmin = db.prepare("SELECT id FROM users WHERE username='admin'").get();
+if (process.env.NODE_ENV === "production" && defaultAdmin) {
+  db.prepare("UPDATE users SET username=?, password=? WHERE id=?").run(ADMIN_USERNAME, ADMIN_PASSWORD, defaultAdmin.id);
+} else if (!db.prepare("SELECT id FROM users LIMIT 1").get()) {
+  db.prepare("INSERT INTO users (username,password) VALUES (?,?)").run(ADMIN_USERNAME, ADMIN_PASSWORD);
 }
 
 const productColumns = db.prepare("PRAGMA table_info(products)").all();

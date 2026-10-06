@@ -1,6 +1,9 @@
 {
   "name": "pods-tracker",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "install-all": "npm --prefix server install && npm --prefix client install",
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",

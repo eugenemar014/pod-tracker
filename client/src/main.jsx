@@ -16,9 +16,9 @@ const money=n=>"₱"+Number(n||0).toLocaleString("en-PH",{minimumFractionDigits:
 const today=()=>new Date().toISOString().slice(0,10);
 
 function Login({onLogin}){
- const [u,setU]=useState("admin"),[p,setP]=useState("admin123"),[err,setErr]=useState("");
+ const [u,setU]=useState(""),[p,setP]=useState(""),[err,setErr]=useState("");
  async function go(e){e.preventDefault();try{const d=await api("/login",{method:"POST",body:JSON.stringify({username:u,password:p})});localStorage.setItem("pods_token",d.token);onLogin(d.user)}catch(e){setErr(e.message)}}
- return <div className="login"><div className="login-card"><div className="logo">P</div><h1>PODS TRACKER</h1><p>Inventory • Sales • Clients • Due Dates</p><form onSubmit={go}><input value={u} onChange={e=>setU(e.target.value)} placeholder="Username"/><input type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="Password"/>{err&&<div className="error">{err}</div>}<button className="primary">Sign In</button></form><small>Default: admin / admin123</small></div></div>
+ return <div className="login"><div className="login-card"><div className="logo">P</div><h1>PODS TRACKER</h1><p>Inventory • Sales • Clients • Due Dates</p><form onSubmit={go}><input value={u} onChange={e=>setU(e.target.value)} placeholder="Username"/><input type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="Password"/>{err&&<div className="error">{err}</div>}<button className="primary">Sign In</button></form></div></div>
 }
 
 const configs={
