@@ -1,0 +1,11 @@
+{
+  "name": "pods-tracker-server",
+  "type": "module",
+  "scripts": { "dev": "node --watch server.js", "start": "node server.js" },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

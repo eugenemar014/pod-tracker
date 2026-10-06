@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: pods-tracker
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: |
+      npm install
+      npm --prefix server install
+      npm --prefix client install
+      npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DB_PATH
+        value: /var/data/pods-tracker.db
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
