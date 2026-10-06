@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS sales (
  checked INTEGER DEFAULT 0,
  FOREIGN KEY(productId) REFERENCES products(id) ON DELETE SET NULL
 );
+CREATE TABLE IF NOT EXISTS purchases (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ productId INTEGER,
+ product TEXT NOT NULL,
+ flavor TEXT DEFAULT '',
+ quantity INTEGER NOT NULL,
+ purchaseDate TEXT DEFAULT CURRENT_TIMESTAMP,
+ notes TEXT DEFAULT '',
+ FOREIGN KEY(productId) REFERENCES products(id) ON DELETE SET NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
  key TEXT PRIMARY KEY,
  value TEXT
@@ -113,7 +123,7 @@ app.post("/api/login",(req,res)=>{
   res.json({token:jwt.sign({id:user.id,username:user.username},JWT_SECRET,{expiresIn:"8h"}), user:{username:user.username}});
 });
 
-const tables = ["products","clients","sales"];
+const tables = ["products","clients","sales","purchases"];
 for (const table of tables) {
   app.get(`/api/${table}`,auth,(req,res)=>{
     res.json(db.prepare(`SELECT * FROM ${table} ORDER BY id DESC`).all());
@@ -150,34 +160,67 @@ app.delete("/api/clients/:id",auth,(req,res)=>{db.prepare("DELETE FROM clients W
 
 app.post("/api/sales",auth,(req,res)=>{
   const s={productId:null,product:"",flavor:"",client:"",quantity:1,price:0,total:0,saleDate:new Date().toISOString().slice(0,10),dueDate:"",paid:0,notes:"",checked:0,...req.body};
+  const quantity=Number(s.quantity);
+  if(!Number.isSafeInteger(quantity)||quantity<=0) return res.status(400).json({error:"Sale quantity must be a positive whole number"});
+  const requestedProduct=String(s.productId||"");
+  const product=(s.productId&&db.prepare("SELECT * FROM products WHERE id=?").get(s.productId))||db.prepare("SELECT * FROM products WHERE product=? AND flavor=? ORDER BY id LIMIT 1").get(s.product||requestedProduct,s.flavor||"");
+  if(!product) return res.status(400).json({error:"Select a valid product for this sale"});
+  s.productId=product.id;s.product=product.product;s.flavor=product.flavor;
   s.total=Number(s.quantity)*Number(s.price);
   const tx=db.transaction(()=>{
+    const current=db.prepare("SELECT stock FROM products WHERE id=?").get(s.productId);
+    if(!current||Number(current.stock)<quantity) throw new Error("INSUFFICIENT_STOCK");
     const r=db.prepare(`INSERT INTO sales (productId,product,flavor,client,quantity,price,total,saleDate,dueDate,paid,notes,checked)
       VALUES (@productId,@product,@flavor,@client,@quantity,@price,@total,@saleDate,@dueDate,@paid,@notes,@checked)`).run(s);
-    if(s.productId) db.prepare("UPDATE products SET stock=MAX(stock-@q,0),sold=sold+@q WHERE id=@id").run({q:Number(s.quantity),id:s.productId});
+    db.prepare("UPDATE products SET stock=stock-@q,sold=sold+@q WHERE id=@id").run({q:quantity,id:s.productId});
     return r.lastInsertRowid;
   });
-  res.json(db.prepare("SELECT * FROM sales WHERE id=?").get(tx()));
+  try { res.json(db.prepare("SELECT * FROM sales WHERE id=?").get(tx())); }
+  catch(error) { if(error.message==="INSUFFICIENT_STOCK") return res.status(409).json({error:"Insufficient stock for this sale"}); throw error; }
 });
 app.put("/api/sales/:id",auth,(req,res)=>{
   const old=db.prepare("SELECT * FROM sales WHERE id=?").get(req.params.id);
   if(!old) return res.status(404).json({error:"Sale not found"});
   const s={...old,...req.body,id:req.params.id};
+  const quantity=Number(s.quantity);
+  if(!Number.isSafeInteger(quantity)||quantity<=0) return res.status(400).json({error:"Sale quantity must be a positive whole number"});
+  const requestedProduct=String(s.productId||"");
+  const product=(s.productId&&db.prepare("SELECT * FROM products WHERE id=?").get(s.productId))||db.prepare("SELECT * FROM products WHERE product=? AND flavor=? ORDER BY id LIMIT 1").get(s.product||requestedProduct,s.flavor||"");
+  if(!product) return res.status(400).json({error:"Select a valid product for this sale"});
+  s.productId=product.id;s.product=product.product;s.flavor=product.flavor;
   s.total=Number(s.quantity)*Number(s.price);
   const tx=db.transaction(()=>{
     if(old.productId) db.prepare("UPDATE products SET stock=stock+@q,sold=MAX(sold-@q,0) WHERE id=@id").run({q:Number(old.quantity),id:old.productId});
+    const current=db.prepare("SELECT stock FROM products WHERE id=?").get(s.productId);
+    if(!current||Number(current.stock)<quantity) throw new Error("INSUFFICIENT_STOCK");
     db.prepare(`UPDATE sales SET productId=@productId,product=@product,flavor=@flavor,client=@client,quantity=@quantity,
       price=@price,total=@total,saleDate=@saleDate,dueDate=@dueDate,paid=@paid,notes=@notes,checked=@checked WHERE id=@id`).run(s);
-    if(s.productId) db.prepare("UPDATE products SET stock=MAX(stock-@q,0),sold=sold+@q WHERE id=@id").run({q:Number(s.quantity),id:s.productId});
+    db.prepare("UPDATE products SET stock=stock-@q,sold=sold+@q WHERE id=@id").run({q:quantity,id:s.productId});
   });
-  tx();
-  res.json(db.prepare("SELECT * FROM sales WHERE id=?").get(req.params.id));
+  try { tx(); res.json(db.prepare("SELECT * FROM sales WHERE id=?").get(req.params.id)); }
+  catch(error) { if(error.message==="INSUFFICIENT_STOCK") return res.status(409).json({error:"Insufficient stock for this sale"}); throw error; }
 });
 app.delete("/api/sales/:id",auth,(req,res)=>{
   const s=db.prepare("SELECT * FROM sales WHERE id=?").get(req.params.id);
   if(s?.productId) db.prepare("UPDATE products SET stock=stock+?,sold=MAX(sold-?,0) WHERE id=?").run(s.quantity,s.quantity,s.productId);
   db.prepare("DELETE FROM sales WHERE id=?").run(req.params.id);
   res.json({ok:true});
+});
+
+app.post("/api/purchases",auth,(req,res)=>{
+  const p={productId:null,quantity:0,purchaseDate:new Date().toISOString().slice(0,10),notes:"",...req.body};
+  const quantity=Number(p.quantity);
+  if(!Number.isSafeInteger(quantity)||quantity<=0) return res.status(400).json({error:"Purchase quantity must be a positive whole number"});
+  const product=db.prepare("SELECT * FROM products WHERE id=?").get(p.productId);
+  if(!product) return res.status(400).json({error:"Select a valid product for this purchase"});
+  const tx=db.transaction(()=>{
+    const r=db.prepare(`INSERT INTO purchases (productId,product,flavor,quantity,purchaseDate,notes)
+      VALUES (@productId,@product,@flavor,@quantity,@purchaseDate,@notes)`)
+      .run({...p,product:product.product,flavor:product.flavor,quantity});
+    db.prepare("UPDATE products SET stock=stock+@quantity WHERE id=@id").run({quantity,id:product.id});
+    return r.lastInsertRowid;
+  });
+  res.json(db.prepare("SELECT * FROM purchases WHERE id=?").get(tx()));
 });
 
 app.get("/api/dashboard",auth,(req,res)=>{

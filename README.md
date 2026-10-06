@@ -1,12 +1,13 @@
 # PODS TRACKER
 
-A cream-and-pink inventory, sales, client and due-date tracker.
+A cream-and-pink inventory, sales and due-date tracker.
 
 ## Included
 - Dashboard
 - Products / flavors / stock / prices
-- Sales and automatic stock deduction
-- Clients and balances
+- In-stock products displayed in an editable, filterable dashboard grid
+- Sales with automatic stock deduction and insufficient-stock validation
+- Purchase receiving with automatic stock increases
 - Due-date tracking
 - Fully editable columns
 - Row checkboxes
