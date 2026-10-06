@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "pods-tracker-change-this-secret";
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "eugenemar014";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Namithan014";
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "pods-tracker.db");
 
