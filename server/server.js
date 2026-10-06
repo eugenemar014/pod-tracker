@@ -13,7 +13,7 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "pods-tracker.db");
 
-if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD)) {
+if (process.env.APP_ENV === "production" && (!process.env.JWT_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD)) {
   throw new Error("Production requires JWT_SECRET, ADMIN_USERNAME, and ADMIN_PASSWORD");
 }
 
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS settings (
 `);
 
 const defaultAdmin = db.prepare("SELECT id FROM users WHERE username='admin'").get();
-if (process.env.NODE_ENV === "production" && defaultAdmin) {
+if (process.env.APP_ENV === "production" && defaultAdmin) {
   db.prepare("UPDATE users SET username=?, password=? WHERE id=?").run(ADMIN_USERNAME, ADMIN_PASSWORD, defaultAdmin.id);
 } else if (!db.prepare("SELECT id FROM users LIMIT 1").get()) {
   db.prepare("INSERT INTO users (username,password) VALUES (?,?)").run(ADMIN_USERNAME, ADMIN_PASSWORD);
