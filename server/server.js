@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || "pods-tracker-change-this-secret";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Namithan014";
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "pods-tracker.db");
 
 if (process.env.APP_ENV === "production" && (!process.env.JWT_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD)) {
@@ -95,6 +95,16 @@ const auth = (req,res,next) => {
   try { req.user = jwt.verify(token, JWT_SECRET); next(); }
   catch { res.status(401).json({error:"Unauthorized"}); }
 };
+
+app.post("/api/change-password",auth,(req,res)=>{
+  const {currentPassword,newPassword} = req.body;
+  if(typeof newPassword!=="string"||newPassword.length<8) return res.status(400).json({error:"New password must be at least 8 characters"});
+  const user=db.prepare("SELECT id,password FROM users WHERE id=?").get(req.user.id);
+  if(!user||user.password!==currentPassword) return res.status(401).json({error:"Current password is incorrect"});
+  if(newPassword===currentPassword) return res.status(400).json({error:"Choose a different password"});
+  db.prepare("UPDATE users SET password=? WHERE id=?").run(newPassword,user.id);
+  res.json({ok:true});
+});
 
 app.post("/api/login",(req,res)=>{
   const {username,password} = req.body;
@@ -190,9 +200,9 @@ app.get("/api/dashboard",auth,(req,res)=>{
 app.get("/api/export/:table",auth,(req,res)=>{
   if(!tables.includes(req.params.table)) return res.status(400).end();
   const rows=db.prepare(`SELECT * FROM ${req.params.table}`).all();
-  const keys=rows.length?Object.keys(rows[0]):[];
+  const keys=db.prepare(`PRAGMA table_info(${req.params.table})`).all().map(column=>column.name);
   const esc=v=>`"${String(v??"").replaceAll('"','""')}"`;
-  const csv=[keys.map(esc).join(","),...rows.map(r=>keys.map(k=>esc(r[k])).join(","))].join("\\n");
+  const csv=[keys.map(esc).join(","),...rows.map(r=>keys.map(k=>esc(r[k])).join(","))].join("\n");
   res.setHeader("Content-Type","text/csv");
   res.setHeader("Content-Disposition",`attachment; filename=${req.params.table}.csv`);
   res.send(csv);
