@@ -8,7 +8,7 @@ const API="/api";
 async function api(path,options={}) {
   const token=localStorage.getItem("pods_token");
   const r=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})}});
-  if(!r.ok) throw new Error((await r.json().catch(()=>({error:"Request failed"}))).error||"Request failed");
+  if(!r.ok){const d=await r.json().catch(()=>({error:"Request failed"}));if(r.status===401&&path!=="/login"&&d.error==="Unauthorized"){localStorage.removeItem("pods_token");window.dispatchEvent(new Event("pods:unauthorized"))}throw new Error(d.error||"Request failed")}
   return r.json();
 }
 
@@ -27,12 +27,13 @@ const configs={
   ["product","Product","text"],["flavor","Flavor","text"],["price","Price","number"],["quantity","Qty","number"],["stock","Stock","number"],["sold","Sold","number"],["dueDate","Due Date","date"],["status","Status","text"],["notes","Notes","text"]
  ]},
  Sales:{key:"sales",icon:ShoppingCart,fields:[
-  ["productId","Product","product"],["quantity","Qty","number"],["price","Price","number"],["total","Total","number"],["saleDate","Sale Date","date"],["dueDate","Due Date","date"],["paid","Paid","checkbox"],["notes","Notes","text"]
+  ["productId","Product","product"],["quantity","Qty","number"],["price","Price","number"],["total","Total","number"],["saleDate","Sale Date","date"],["dueDate","Due Date","date"],["paid","Paid","checkbox"],["notes","Notes","text"],["transactionId","Txn","transaction"]
  ]}
 };
 
 function App(){
  const [user,setUser]=useState(()=>localStorage.getItem("pods_token")?{username:"admin"}:null);
+ useEffect(()=>{const expired=()=>setUser(null);window.addEventListener("pods:unauthorized",expired);return()=>window.removeEventListener("pods:unauthorized",expired)},[]);
  if(!user) return <Login onLogin={setUser}/>;
  return <Tracker onLogout={()=>{localStorage.removeItem("pods_token");setUser(null)}}/>;
 }
@@ -54,7 +55,7 @@ function Tracker({onLogout}){
   catch(e){await load();flash(`Imported ${imported}; stopped at row ${imported+1}: ${e.message}`)}
  }
  function add(){if(page==="Sales"){setSaleOpen(true);return}const r={};(cfg?.fields||[]).forEach(([k,,t])=>r[k]=t==="checkbox"?0:t==="number"?0:"");save(cfg.key,r)}
- async function exportCsv(){try{const response=await fetch(`${API}/export/${cfg.key}`,{headers:{Authorization:`Bearer ${localStorage.getItem("pods_token")}`}});if(!response.ok)throw new Error("Export failed");const url=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=url;link.download=`${cfg.key}.csv`;link.click();URL.revokeObjectURL(url)}catch(e){flash(e.message)}}
+ async function exportCsv(){try{const response=await fetch(`${API}/export/${cfg.key}`,{headers:{Authorization:`Bearer ${localStorage.getItem("pods_token")}`}});if(response.status===401){localStorage.removeItem("pods_token");window.dispatchEvent(new Event("pods:unauthorized"))}if(!response.ok)throw new Error("Export failed");const url=URL.createObjectURL(await response.blob());const link=document.createElement("a");link.href=url;link.download=`${cfg.key}.csv`;link.click();URL.revokeObjectURL(url)}catch(e){flash(e.message)}}
  async function changePassword(currentPassword,newPassword){await api("/change-password",{method:"POST",body:JSON.stringify({currentPassword,newPassword})});flash("Password changed")}
  return <div className="app">
   <aside className={mobile?"open":""}><div className="brand"><div className="brand-mark">P</div><div><b>PODS TRACKER</b><span>Management System</span></div><button className="icon-btn mobile-close" onClick={()=>setMobile(false)}><X/></button></div>
@@ -70,7 +71,7 @@ function Tracker({onLogout}){
    {toast&&<div className="toast">{toast}</div>}
   {page==="Dashboard"?<Dashboard data={data} save={save} onViewProducts={()=>setPage("Products")}/>:page==="Due Dates"?<DueDates data={data}/>:page==="Purchases"?<Purchases data={data} onPurchase={async purchase=>{const saved=await api("/purchases",{method:"POST",body:JSON.stringify(purchase)});await load();flash(`${saved.quantity} unit(s) received`);return saved}} flash={flash}/>:<DataTable cfg={cfg} rows={data[cfg.key]||[]} products={data.products||[]} query={query} setQuery={setQuery} save={save} remove={remove} add={add} importRows={importRows} exportCsv={exportCsv} flash={flash}/>}
   {passwordOpen&&<PasswordModal onClose={()=>setPasswordOpen(false)} onChange={changePassword}/>}
-  {saleOpen&&<SaleModal products={data.products||[]} onClose={()=>setSaleOpen(false)} onSubmit={async sale=>{const saved=await api("/sales",{method:"POST",body:JSON.stringify(sale)});await load();flash("Sale recorded");return saved}} flash={flash}/>}
+  {saleOpen&&<SaleModal products={data.products||[]} onClose={()=>setSaleOpen(false)} onSubmit={async sale=>{const saved=await api("/sales",{method:"POST",body:JSON.stringify(sale)});await load();flash(`Sale recorded (${saved.sales.length} product line${saved.sales.length===1?"":"s"})`);return saved}} flash={flash}/>}
   </main>
  </div>
 }
@@ -144,6 +145,7 @@ function DataTable({cfg,rows,products,query,setQuery,save,remove,add,importRows,
 }
 function Cell({row,field,type,value,products=[],change,commit}){
  if(type==="product") return <select value={value??""} onChange={event=>{change(event.target.value?Number(event.target.value):"");commit()}}><option value="">Select product</option>{products.map(product=><option key={product.id} value={product.id}>{product.product}{product.flavor?` · ${product.flavor}`:""} (stock: {product.stock})</option>)}</select>;
+ if(type==="transaction") return <span title={value||`Legacy sale ${row.id}`}>{value?`#${String(value).slice(0,8)}`:`#${row.id}`}</span>;
  if(type==="checkbox") return <input type="checkbox" checked={!!value} onChange={e=>{change(e.target.checked?1:0);commit()}}/>;
  return <input type={type} list={field==="quantity"?"quantity-options":undefined} value={value??""} onChange={e=>change(e.target.value)} onBlur={commit} className={field==="notes"?"wide":""}/>;
 }
@@ -157,10 +159,33 @@ function Purchases({data,onPurchase,flash}){
 }
 
 function SaleModal({products,onClose,onSubmit,flash}){
- const [productId,setProductId]=useState(""),[quantity,setQuantity]=useState(1),[price,setPrice]=useState(""),[saleDate,setSaleDate]=useState(today()),[dueDate,setDueDate]=useState(""),[paid,setPaid]=useState(false),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false);
- const selected=products.find(product=>String(product.id)===productId);
- async function submit(event){event.preventDefault();if(!selected){flash("Select a product for this sale");return}setSaving(true);try{await onSubmit({productId:Number(productId),quantity:Number(quantity),price:Number(price),saleDate,dueDate,paid:paid?1:0,notes});onClose()}catch(error){flash(error.message)}finally{setSaving(false)}}
- return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="password-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="sale-title"><div className="modal-heading"><h3 id="sale-title">Record sale</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onClose}><X/></button></div><form onSubmit={submit}><label>Product<select value={productId} onChange={event=>{setProductId(event.target.value);const product=products.find(item=>String(item.id)===event.target.value);setPrice(product?.price??"")}} required><option value="">Select product</option>{products.map(product=><option key={product.id} value={product.id}>{product.product}{product.flavor?` · ${product.flavor}`:""} (stock: {product.stock})</option>)}</select></label><label>Quantity<input type="number" min="1" max={selected?.stock??undefined} step="1" value={quantity} onChange={event=>setQuantity(event.target.value)} required/></label><label>Unit price<input type="number" min="0" step="0.01" value={price} onChange={event=>setPrice(event.target.value)} required/></label><label>Sale date<input type="date" value={saleDate} onChange={event=>setSaleDate(event.target.value)} required/></label><label>Due date<input type="date" value={dueDate} onChange={event=>setDueDate(event.target.value)}/></label><label className="check-label"><input type="checkbox" checked={paid} onChange={event=>setPaid(event.target.checked)}/>Paid</label><label>Notes<input value={notes} onChange={event=>setNotes(event.target.value)}/></label><div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={saving||!products.length}>{saving?"Recording...":"Record sale"}</button></div></form></section></div>
+ const [items,setItems]=useState([{lineId:1,productId:"",quantity:"1",price:""}]);
+ const [nextLineId,setNextLineId]=useState(2);
+ const [saleDate,setSaleDate]=useState(today()),[dueDate,setDueDate]=useState(""),[paid,setPaid]=useState(false),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false);
+ const total=items.reduce((sum,item)=>sum+Number(item.quantity||0)*Number(item.price||0),0);
+ function updateItem(lineId,changes){setItems(current=>current.map(item=>item.lineId===lineId?{...item,...changes}:item))}
+ function addItem(){setItems(current=>[...current,{lineId:nextLineId,productId:"",quantity:"1",price:""}]);setNextLineId(id=>id+1)}
+ async function submit(event){
+  event.preventDefault();
+  if(!items.length||items.some(item=>!item.productId)){flash("Select a product for every sale item");return}
+  if(items.some(item=>!Number.isSafeInteger(Number(item.quantity))||Number(item.quantity)<=0)){flash("Each quantity must be a positive whole number");return}
+  if(items.some(item=>!Number.isFinite(Number(item.price))||Number(item.price)<0)){flash("Enter a valid non-negative price for every item");return}
+  setSaving(true);
+  try{await onSubmit({items:items.map(({productId,quantity,price})=>({productId:Number(productId),quantity:Number(quantity),price:Number(price)})),saleDate,dueDate,paid:paid?1:0,notes});onClose()}
+  catch(error){flash(error.message)}
+  finally{setSaving(false)}
+ }
+ return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="password-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="sale-title"><div className="modal-heading"><h3 id="sale-title">Record sale</h3><button type="button" className="icon-btn" aria-label="Close" onClick={onClose}><X/></button></div><form onSubmit={submit}>
+  <div className="sale-items"><div className="sale-items-heading"><b>Products in this sale</b><button type="button" className="secondary" onClick={addItem}><Plus/>Add product</button></div>
+   {items.map((item,index)=>{const selected=products.find(product=>String(product.id)===item.productId);return <div className="sale-line" key={item.lineId}>
+    <label>Product<select value={item.productId} onChange={event=>{const product=products.find(option=>String(option.id)===event.target.value);updateItem(item.lineId,{productId:event.target.value,price:product?.price??""})}} required><option value="">Select product</option>{products.map(product=><option key={product.id} value={product.id}>{product.product}{product.flavor?` · ${product.flavor}`:""} (stock: {product.stock})</option>)}</select></label>
+    <label>Quantity<input type="number" min="1" max={selected?.stock??undefined} step="1" value={item.quantity} onChange={event=>updateItem(item.lineId,{quantity:event.target.value})} required/></label>
+    <label>Unit price<input type="number" min="0" step="0.01" value={item.price} onChange={event=>updateItem(item.lineId,{price:event.target.value})} required/></label>
+    <button type="button" className="remove-sale-line" aria-label={`Remove product ${index+1}`} disabled={items.length===1} onClick={()=>setItems(current=>current.filter(line=>line.lineId!==item.lineId))}><Trash2/></button>
+   </div>})}
+   <div className="sale-total"><span>Transaction total</span><b>{money(total)}</b></div>
+  </div>
+  <label>Sale date<input type="date" value={saleDate} onChange={event=>setSaleDate(event.target.value)} required/></label><label>Due date<input type="date" value={dueDate} onChange={event=>setDueDate(event.target.value)}/></label><label className="check-label"><input type="checkbox" checked={paid} onChange={event=>setPaid(event.target.checked)}/>Paid</label><label>Notes<input value={notes} onChange={event=>setNotes(event.target.value)}/></label><div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={saving||!products.length}>{saving?"Recording...":"Record sale"}</button></div></form></section></div>
 }
 
 function DueDates({data}){

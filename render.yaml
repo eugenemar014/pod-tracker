@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pods-tracker
+    name: pods-tracker-eugenemar
     env: node
     plan: free
     region: oregon
@@ -16,14 +16,20 @@ services:
       - key: APP_ENV
         value: production
       - key: ADMIN_USERNAME
-        value: admin
+        value: eugenemar014
       - key: ADMIN_PASSWORD
         generateValue: true
       - key: JWT_SECRET
         generateValue: true
-      - key: DB_PATH
-        value: /var/data/pods-tracker.db
-    disk:
-      name: data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pods-tracker-db
+          property: connectionString
+
+databases:
+  - name: pods-tracker-db
+    databaseName: pods_tracker
+    user: pods_tracker
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
