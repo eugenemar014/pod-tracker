@@ -6,7 +6,7 @@ A cream-and-pink inventory, sales and due-date tracker.
 - Dashboard
 - Products / flavors / stock / prices
 - In-stock products displayed in an editable, filterable dashboard grid
-- Spreadsheet view for browsing and editing product and sales records
+- Spreadsheet pop-out window for browsing and editing product and sales records
 - Multi-product sales transactions with automatic stock deduction and insufficient-stock validation
 - Purchase receiving with automatic stock increases
 - Due-date tracking
